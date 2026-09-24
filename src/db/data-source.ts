@@ -25,6 +25,9 @@ if (!process.env.DB_HOST) {
 if (!process.env.DB_PASSWORD) {
   throw new Error('DB_PASSWORD is missing in environment');
 }
-
+console.log('=== DATABASE CONNECTION TEST ===');
+console.log('HOST:', process.env.DB_HOST);
+console.log('PORT:', process.env.DB_PORT);
+console.log('================================');
 const AppDataSource = new DataSource(dataSourceOptions);
 export default AppDataSource;
