@@ -1,23 +1,30 @@
 import { DataSource, DataSourceOptions } from 'typeorm';
-import * as dotenv from 'dotenv';
 
-dotenv.config(); // Loads environment variables from your .env file
-
-export const dataSourceOptions: DataSourceOptions = {
+const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432', 10),
-  username: process.env.DB_USERNAME || 'postgres',
-  password: process.env.DB_PASSWORD || 'Amir1384@',
-  database: process.env.DB_NAME || 'API',
-  
-  // Point to both TS (for development) and JS (compiled for production)
+
+  host: process.env.DB_HOST!,
+  port: Number(process.env.DB_PORT),
+
+  username: process.env.DB_USERNAME!,
+  password: process.env.DB_PASSWORD!,
+  database: process.env.DB_NAME!,
+
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
-  
-  // MUST be false when using migrations to prevent data loss!
-  synchronize: false, 
+
+  synchronize: false,
+
+  ssl: false,
 };
+
+if (!process.env.DB_HOST) {
+  throw new Error('DB_HOST is missing in environment');
+}
+
+if (!process.env.DB_PASSWORD) {
+  throw new Error('DB_PASSWORD is missing in environment');
+}
 
 const AppDataSource = new DataSource(dataSourceOptions);
 export default AppDataSource;
