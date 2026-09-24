@@ -9,6 +9,8 @@ import { AppModule } from "./app.module";
 import cookieParser from "cookie-parser";
 
 async function bootstrap() {
+  console.log('🚨 CONNECTING TO HOST:', process.env.DB_HOST);
+console.log('🚨 ON PORT:', process.env.DB_PORT);
   // Ensure upload directory exists before any request hits multer
   mkdirSync(join(process.cwd(), "uploads", "images"), { recursive: true });
 
