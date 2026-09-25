@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { join } from 'path';
 import { DataSource, DataSourceOptions } from 'typeorm';
 
 export const dataSourceOptions: DataSourceOptions = {
@@ -11,10 +12,10 @@ export const dataSourceOptions: DataSourceOptions = {
   password: process.env.DB_PASSWORD!,
   database: process.env.DB_NAME!,
 
-  entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-  migrations: [__dirname + '/migrations/*{.ts,.js}'],
+  entities: [join(__dirname, '/../**/*.entity{.ts,.js}')],
+  migrations: [join(__dirname, '/migrations/*{.ts,.js}')],
 
-  synchronize: false, // never use TRUE in production! (use migrations instead)
+  synchronize: true, // never use TRUE in production! (use migrations instead)
 
   ssl: false,
 };
