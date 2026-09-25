@@ -10,7 +10,7 @@ import cookieParser from "cookie-parser";
 
 async function bootstrap() {
   console.log('🚨 CONNECTING TO HOST:', process.env.DB_HOST);
-console.log('🚨 ON PORT:', process.env.DB_PORT);
+  console.log('🚨 ON PORT:', process.env.DB_PORT);
   // Ensure upload directory exists before any request hits multer
   mkdirSync(join(process.cwd(), "uploads", "images"), { recursive: true });
 
@@ -44,7 +44,7 @@ console.log('🚨 ON PORT:', process.env.DB_PORT);
 
 
 
-app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
+  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
 
   // ── Global validation ─────────────────────────────────────────────────────
@@ -73,7 +73,8 @@ app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
     SwaggerModule.setup("api", app, SwaggerModule.createDocument(app, swaggerConfig));
   }
 
-  await app.listen(process.env.PORT ?? 3020);
+  const port = process.env.PORT || 3000;
+  await app.listen(port, '0.0.0.0');
 }
 
 bootstrap();

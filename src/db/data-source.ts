@@ -14,7 +14,7 @@ const dataSourceOptions: DataSourceOptions = {
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
 
-  synchronize: true,
+  synchronize: false, // never use TRUE in production! (use migrations instead)
 
   ssl: false,
 };
