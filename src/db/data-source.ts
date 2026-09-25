@@ -14,10 +14,11 @@ const dataSourceOptions: DataSourceOptions = {
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
 
-  synchronize: false,
+  synchronize: true,
 
   ssl: false,
 };
+if
 
 if (!process.env.DB_HOST) {
   throw new Error('DB_HOST is missing in environment');
