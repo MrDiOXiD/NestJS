@@ -72,9 +72,14 @@ async function bootstrap() {
 
     SwaggerModule.setup("api", app, SwaggerModule.createDocument(app, swaggerConfig));
   }
+// Safely parse process.env.PORT to a number, fallback to 3000 if undefined
+  const rawPort = process.env.PORT;
+  const port = rawPort ? parseInt(rawPort, 10) : 3000;
 
-  const port = process.env.PORT || 3000;
+  // Bind to '0.0.0.0' to allow containerized network traffic on Runflare
   await app.listen(port, '0.0.0.0');
+
+  console.log(`🚀 APP IS RUNNING AND LISTENING ON PORT: ${port}`);
 }
 
 bootstrap();
