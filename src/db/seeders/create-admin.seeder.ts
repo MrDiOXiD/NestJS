@@ -109,7 +109,7 @@ async function main() {
   // in once OTP auth exists and phone becomes meaningful to collect.
 
   let password = '';
-  for (;;) {
+  for (; ;) {
     password = await askHidden('Password: ');
     const errors = validatePassword(password);
     if (errors.length > 0) {
@@ -141,6 +141,8 @@ async function main() {
   const hashed = await hash(password, 12); // same cost factor as UserService.hashPassword()
 
   const admin = userRepo.create({
+    name: 'Admin',          // 👈 Added to satisfy NOT NULL constraint
+    familyName: 'System',
     username,
     email,
     phoneNumber: undefined,

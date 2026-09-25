@@ -15,7 +15,7 @@ export const dataSourceOptions: DataSourceOptions = {
   entities: [join(__dirname, '/../**/*.entity{.ts,.js}')],
   migrations: [join(__dirname, '/migrations/*{.ts,.js}')],
 
-  synchronize: true, // never use TRUE in production! (use migrations instead)
+  synchronize: false, // never use TRUE in production! (use migrations instead)
 
   ssl: false,
 };
