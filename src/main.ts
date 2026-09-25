@@ -13,7 +13,6 @@ async function bootstrap() {
   logger.log(`🚨 CONNECTING TO HOST: ${process.env.DB_HOST}`);
   logger.log(`🚨 ON PORT: ${process.env.DB_PORT}`);
 
-  // ── 1. Safely create upload directory ──────────────────────────────────────
   try {
     mkdirSync(join(process.cwd(), "uploads", "images"), { recursive: true });
   } catch (err: any) {
@@ -22,39 +21,30 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
-  // ── 2. Trust reverse proxy (Runflare ingress / Nginx) ──────────────────────
   app.getHttpAdapter().getInstance().set("trust proxy", 1);
-
   app.use(cookieParser());
-
-  // ── 3. Security headers ───────────────────────────────────────────────────
   app.use(helmet());
 
-  // ── 4. Dynamic CORS setup ─────────────────────────────────────────────────
   const allowedOrigins = [
     process.env.ALLOWED_ORIGIN,
     "https://chatratech.ir",
     "https://www.chatratech.ir",
-    "https://panel.chatratech.ir",
-    "https://www.panel.chatratech.ir",
     "http://localhost:3000",
     "http://localhost:3010",
   ].filter(Boolean) as string[];
 
   app.enableCors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl) or matched origins
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        callback(null, true); // Fallback allow to prevent production lockout
+        callback(null, true);
       }
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
   });
 
-  // ── 5. Global Interceptors & Validation ───────────────────────────────────
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
   app.useGlobalPipes(
@@ -68,7 +58,6 @@ async function bootstrap() {
     }),
   );
 
-  // ── 6. Swagger Documentation (Non-production) ─────────────────────────────
   if (process.env.NODE_ENV !== "production") {
     const swaggerConfig = new DocumentBuilder()
       .setTitle("Chatra API")
@@ -80,7 +69,6 @@ async function bootstrap() {
     SwaggerModule.setup("api", app, SwaggerModule.createDocument(app, swaggerConfig));
   }
 
-  // ── 7. Network & Port Binding ─────────────────────────────────────────────
   const rawPort = process.env.PORT;
   const port = rawPort ? parseInt(rawPort, 10) : 3000;
 
