@@ -18,7 +18,7 @@ const dataSourceOptions: DataSourceOptions = {
 
   ssl: false,
 };
-if
+
 
 if (!process.env.DB_HOST) {
   throw new Error('DB_HOST is missing in environment');
