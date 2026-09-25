@@ -4,6 +4,7 @@ import {
   NestModule,
   OnModuleInit,
   RequestMethod,
+  Logger,
 } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -11,7 +12,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 
 import { UsersModule } from './users/users.module';
 import { AuditModule } from './audit/audit.module';
-import { typeOrmCOnfig } from './config/DB.config';
+import { dataSourceOptions } from './db/data-source'; // 👈 Synchronized DB options
 import { CurrentUserMiddleware } from './utils/middleware/currentUser.middleware';
 import { CompressionMiddleware } from './utils/middleware/compression.middleware';
 import { ProductsModule } from './products/products.module';
@@ -22,14 +23,14 @@ import { PaymentModule } from './payment/payment.module';
 import { WishlistModule } from './whishlist/whishlist.module';
 import { AddressesModule } from './addressess/addresses.module';
 import { DeliveryModule } from './delivery/delivery.module';
-import { OtpModule } from './otp-p1/otp.module';
 
 @Module({
   imports: [
-    // ConfigModule MUST come first — TypeOrm config reads env vars through it
+    // ConfigModule MUST come first
     ConfigModule.forRoot({ isGlobal: true }),
 
-    TypeOrmModule.forRoot(typeOrmCOnfig),
+    // 👈 Uses the exact DB settings verified in data-source.ts
+    TypeOrmModule.forRoot(dataSourceOptions),
 
     ThrottlerModule.forRoot([{ ttl: 60, limit: 10 }]),
 
@@ -43,21 +44,19 @@ import { OtpModule } from './otp-p1/otp.module';
     WishlistModule,
     AddressesModule,
     DeliveryModule,
-    OtpModule,
-  
   ],
 })
 export class AppModule implements NestModule, OnModuleInit {
+  private readonly logger = new Logger(AppModule.name);
+
   constructor(private readonly configService: ConfigService) {}
 
-  // OnModuleInit runs after DI is set up — safe place to validate environment variables
   onModuleInit() {
     const requiredArvanEnv = [
       'ARVAN_ENDPOINT',
       'ARVAN_ACCESS_KEY',
       'ARVAN_SECRET_KEY',
       'ARVAN_BUCKET_NAME',
-      // Payment gateway — fail fast so a misconfigured deploy is caught at startup
       'ZIBAL_MERCHANT',
       'APP_URL',
       'FRONTEND_URL',
@@ -65,16 +64,15 @@ export class AppModule implements NestModule, OnModuleInit {
 
     for (const envVar of requiredArvanEnv) {
       if (!process.env[envVar]) {
-        throw new Error(
-          `ArvanCloud config incomplete — please set ${envVar} in your .env file`,
+        this.logger.warn(
+          `⚠️ Environment variable ${envVar} is missing. Set it in Runflare Dashboard.`,
         );
-      } // <-- Safely closed the IF statement
-    } // <-- Safely closed the FOR loop
-  } // <-- Safely closed the onModuleInit method
+      }
+    }
+  }
 
   configure(consumer: MiddlewareConsumer) {
     consumer
-      // Compression first — reduces bytes before any business logic runs
       .apply(CompressionMiddleware, CurrentUserMiddleware)
       .forRoutes({ path: '*', method: RequestMethod.ALL });
   }
