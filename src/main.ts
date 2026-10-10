@@ -61,7 +61,7 @@ async function bootstrap() {
   if (process.env.NODE_ENV !== "production") {
     const swaggerConfig = new DocumentBuilder()
       .setTitle("Chatra API")
-      .setDescription("API documentation")
+      .setDescription("API documentation made by A.M.Heydari")
       .setVersion("1.0")
       .addBearerAuth()
       .build();

@@ -23,8 +23,10 @@ export class GoogleAuthService {
     }
     this.clientId = clientId;
 
-    const proxy = process.env.GOOGLE_PROXY?.trim();
-    this.client = new OAuth2Client({
+const proxy =
+  process.env.NODE_ENV !== 'production'
+    ? process.env.GOOGLE_PROXY?.trim()
+    : undefined;    this.client = new OAuth2Client({
       clientId,
       ...(proxy
         ? {
