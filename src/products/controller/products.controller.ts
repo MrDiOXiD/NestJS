@@ -31,6 +31,7 @@ import { multerConfig } from "../../utils/middleware/multer";
 import { UpdateProductDto } from "../dto/update-product.dto";
 import { SetFeaturedDto } from "../dto/set-featured.dto";
 import { ProductSort } from "../enums/product-sort.enum";
+import { SetProductBadgesDto } from "../dto/set-product-badges.dto";
 import { UserEntity } from "@/users/entities/user.entity";
 import {
   ApiBadRequestResponse,
@@ -44,7 +45,6 @@ import {
   ApiQuery,
   ApiTags,
 } from "@nestjs/swagger";
-import { SetProductBadgesDto } from "../dto/set-product-badges.dto";
 @ApiTags("products")
 @ApiBearerAuth()
 @Controller("products")
@@ -176,8 +176,32 @@ export class ProductsController {
 
   @UseGuards(AuthenticationGuard, AuthorizedGuard([Roles.ADMIN]))
   @Put(":id")
-  @ApiOperation({ summary: "Update a product" })
+  @ApiOperation({
+    summary: "Update a product",
+    description: "JSON body, every field optional. Send null for brand / discountStartDate / discountEndDate to clear them. Images are not editable here.",
+  })
   @ApiParam({ name: "id", type: Number, example: 1 })
+  @ApiBody({
+    type: UpdateProductDto,
+    examples: {
+      basics: { summary: "Edit basics", value: { title: "لامپ LED حبابی ۱۲ وات", price: 49000, stock: 80 } },
+      discount: {
+        summary: "Set a discount window",
+        value: { discount: 15, discountStartDate: "2026-10-15T00:00:00.000Z", discountEndDate: "2026-10-30T23:59:59.000Z" },
+      },
+      clearDiscount: {
+        summary: "Clear the discount",
+        value: { discount: 0, discountStartDate: null, discountEndDate: null },
+      },
+      brandAndBadges: {
+        summary: "Brand, badges and attributes",
+        value: { brand: "پارس شهاب", badges: [1, 3], attributes: { color: "white", power: "12W" } },
+      },
+    },
+  })
+  @ApiOkResponse({ type: ProductEntity })
+  @ApiBadRequestResponse({ description: "Validation failed or unknown/inactive badge id" })
+  @ApiNotFoundResponse({ description: "Product or category not found" })
   async update(
     @Param("id", ParseIntPipe) id: number,
     @Body() updateProductDto: UpdateProductDto,

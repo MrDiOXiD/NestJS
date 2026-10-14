@@ -23,6 +23,19 @@ import { UserEntity } from "@/users/entities/user.entity";
 import { PutObjectCommand, DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { extname } from "path";
 
+/** Columns that map 1:1 from UpdateProductDto. null is allowed for brand to clear it. */
+const UPDATABLE_FIELDS = [
+  "title",
+  "description",
+  "price",
+  "stock",
+  "discount",
+  "isActive",
+  "isFeatured",
+  "brand",
+  "attributes",
+] as const satisfies readonly (keyof UpdateProductDto)[];
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -138,12 +151,15 @@ export class ProductsService {
   async update(id: number, dto: UpdateProductDto): Promise<ProductEntity> {
     const product = await this.findOne(id);
 
-    // ── Scalar fields: use actual ProductEntity property names ──
-    // ERROR WAS HERE: 'name' does not exist — the field is 'title'
-    if (dto.title !== undefined) product.title = dto.title;
-    if (dto.price !== undefined) product.price = dto.price;
-    if (dto.stock !== undefined) product.stock = dto.stock;
-    if (dto.description !== undefined) product.description = dto.description;
+    // ── Scalar fields: explicit whitelist, so a stray key can never overwrite id/userId/etc. ──
+    for (const field of UPDATABLE_FIELDS) {
+      const value = dto[field];
+      if (value !== undefined) Object.assign(product, { [field]: value });
+    }
+
+    // Discount dates can be cleared with null (@IsOptional lets null through validation)
+    if (dto.discountStartDate !== undefined) product.discountStartDate = dto.discountStartDate ?? null;
+    if (dto.discountEndDate !== undefined) product.discountEndDate = dto.discountEndDate ?? null;
 
     // ── Category: delegate to categoriesService — no categoryRepository needed ──
     // ERROR WAS HERE: this.categoryRepository does not exist on ProductsService
