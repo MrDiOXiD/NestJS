@@ -31,9 +31,10 @@ import { multerConfig } from "../../utils/middleware/multer";
 import { UpdateProductDto } from "../dto/update-product.dto";
 import { SetFeaturedDto } from "../dto/set-featured.dto";
 import { ProductSort } from "../enums/product-sort.enum";
-import { ProductBadge } from "../enums/product-badge.enum";
 import { UserEntity } from "@/users/entities/user.entity";
 import {
+  ApiBadRequestResponse,
+  ApiNotFoundResponse,
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
@@ -43,6 +44,7 @@ import {
   ApiQuery,
   ApiTags,
 } from "@nestjs/swagger";
+import { SetProductBadgesDto } from "../dto/set-product-badges.dto";
 @ApiTags("products")
 @ApiBearerAuth()
 @Controller("products")
@@ -80,8 +82,8 @@ export class ProductsController {
         // 🌟 Badges (multiple, e.g. new + hot at once)
         badges: {
           type: "string",
-          example: '["new","hot"]',
-          description: `JSON-stringified array. Allowed values: ${Object.values(ProductBadge).join(", ")}`,
+          example: "[1,3]",
+          description: "Badge ids from GET /badges, as \"[1,3]\" or \"1,3\". Max 10, active badges only.",
         },
 
         // 🌟 NEW: Dynamic Attributes (JSON String)
@@ -194,6 +196,33 @@ export class ProductsController {
     @Body() dto: SetFeaturedDto,
   ): Promise<ProductEntity> {
     return this.productsService.setFeatured(id, dto.isFeatured);
+  }
+
+  @UseGuards(AuthenticationGuard, AuthorizedGuard([Roles.ADMIN]))
+  @Put(":id/badges")
+  @ApiOperation({
+    summary: "Replace a product's badges",
+    description: "Overwrites the full badge list. Send an empty array to remove all badges.",
+  })
+  @ApiParam({ name: "id", type: Number, example: 1 })
+  @ApiBody({
+    type: SetProductBadgesDto,
+    examples: {
+      multiple: { summary: "Three badges", value: { badgeIds: [1, 2, 3] } },
+      clear: { summary: "Remove all badges", value: { badgeIds: [] } },
+    },
+  })
+  @ApiOkResponse({ type: ProductEntity })
+  @ApiBadRequestResponse({
+    description: "Unknown/inactive badge id, duplicates, or invalid payload",
+    example: { statusCode: 400, message: "Unknown or inactive badge id(s): 99", error: "Bad Request" },
+  })
+  @ApiNotFoundResponse({ description: "Product not found" })
+  async setBadges(
+    @Param("id", ParseIntPipe) id: number,
+    @Body() dto: SetProductBadgesDto,
+  ): Promise<ProductEntity> {
+    return this.productsService.setBadges(id, dto.badgeIds);
   }
 
   @UseGuards(AuthenticationGuard, AuthorizedGuard([Roles.ADMIN]))

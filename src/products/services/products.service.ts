@@ -12,6 +12,7 @@ import * as cloudinary from "cloudinary";
 import { ProductEntity } from "../entities/product.entity";
 import { CreateProductDto } from "../dto/create-product.dto";
 import { ProductSort } from "../enums/product-sort.enum";
+import { BadgesService } from "./badges.service";
 
 import { CategoriesEntity } from "../../categories/entities/category.entity";
 import { CategoriesService } from "../../categories/services/categories.service";
@@ -30,6 +31,7 @@ export class ProductsService {
     @InjectRepository(ProductEntity)
     private readonly productRepository: Repository<ProductEntity>,
     private readonly categoriesService: CategoriesService,
+    private readonly badgesService: BadgesService,
   ) {
     //-------arvan(cloudinary)---------------------------------------------------
     // This makes sure NestJS doesn't try to inject it as a provider!
@@ -53,6 +55,8 @@ export class ProductsService {
     currentUser: UserEntity,
   ): Promise<ProductEntity> {
     try {
+      // Validate before any S3 upload so a bad badge id never leaves orphaned files.
+      await this.badgesService.assertAllActive(dto.badges ?? []);
       const category = await this.categoriesService.findCategoryById(+dto.categoryId);
       const { secure_url, public_id } = await this.uploadProductImage(productImage);
       let galleryUploads: { secure_url: string; public_id: string; }[] = [];
@@ -149,6 +153,18 @@ export class ProductsService {
       product.categoryId = category.id;
     }
 
+    if (dto.badges !== undefined) {
+      await this.badgesService.assertAllActive(dto.badges);
+      product.badges = dto.badges;
+    }
+
+    return this.productRepository.save(product);
+  }
+
+  async setBadges(id: number, badgeIds: number[]): Promise<ProductEntity> {
+    const product = await this.findOne(id);
+    await this.badgesService.assertAllActive(badgeIds);
+    product.badges = badgeIds;
     return this.productRepository.save(product);
   }
 

@@ -2,10 +2,10 @@
 
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsDate,
-  IsEnum,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -20,7 +20,7 @@ import {
 } from 'class-validator';
 // 1. Add "Transform" to your class-transformer imports
 import { Type, Transform } from 'class-transformer';
-import { ProductBadge } from '../enums/product-badge.enum';
+import { parseIdList } from '@/utils/helpers/parseIdForBadges';
 
 export class CreateProductDto {
   @IsString()
@@ -96,23 +96,15 @@ export class CreateProductDto {
   @MaxLength(100)
   brand?: string;
 
-  // 🌟 Multiple badges at once (e.g. ["new","hot"]) — arrives as a JSON string
-  // from multipart/form-data, same convention as `attributes` below.
+  // 🌟 Badge IDs (e.g. [1,3]) — multipart sends strings, parseIdList normalises them.
   @IsOptional()
-  @Transform(({ value }) => {
-    if (typeof value === 'string' && value.trim() !== '') {
-      try {
-        return JSON.parse(value);
-      } catch (error) {
-        return value; // let @IsArray throw a clear validation error
-      }
-    }
-    return value;
-  })
+  @Transform(parseIdList)
   @IsArray()
-  @ArrayMaxSize(6)
-  @IsEnum(ProductBadge, { each: true, message: `Each badge must be one of: ${Object.values(ProductBadge).join(', ')}` })
-  badges?: ProductBadge[];
+  @ArrayMaxSize(10)
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @IsPositive({ each: true })
+  badges?: number[];
 
   // 🌟 The parsing magic for multipart/form-data
   @IsOptional()

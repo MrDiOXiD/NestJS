@@ -14,7 +14,6 @@ import { CategoriesEntity } from '../../categories/entities/category.entity';
 import { OrderProductsEntity } from '../../orders/entities/order-product.entity';
 import { UserEntity } from '@/users/entities/user.entity';
 import { ReviewEntity } from '@/reviews/entities/review.entity';
-import { ProductBadge } from '../enums/product-badge.enum';
 
 // @Index doesn't support per-column ASC/DESC — the migration recreates this
 // as ascending. Postgres B-tree indexes scan backwards for free, so
@@ -70,14 +69,13 @@ export class ProductEntity {
   brand!: string | null;
 
   @ApiPropertyOptional({
-    example: ['new', 'hot'],
-    enum: ProductBadge,
-    isArray: true,
+    type: [Number],
+    example: [1, 3],
     nullable: true,
-    description: 'A product can carry multiple badges at once (e.g. new + hot).',
+    description: 'IDs of rows in the `badges` table. A product can carry several badges at once.',
   })
-  @Column({ type: 'enum', enum: ProductBadge, array: true, nullable: true })
-  badges!: ProductBadge[] | null;
+  @Column({ type: 'jsonb', nullable: true })
+  badges!: number[] | null;
 
   @ApiPropertyOptional({
     example: { color: 'white', power: '9W', warranty: '12 months' },
