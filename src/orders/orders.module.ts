@@ -1,5 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { OrdersService } from './services/orders.service';
+import { OrdersListService } from './services/orders-list.service';
+import { OrderStockService } from './services/order-stock.service';
 import { OrdersController } from './controller/orders.controller';
 import { OrderEntity } from './entities/order.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -27,7 +29,7 @@ import { DeliveryModule } from '@/delivery/delivery.module';
     forwardRef(() => AuditModule),
   ],
   controllers: [OrdersController],
-  providers:   [OrdersService, AuditService],
+  providers:   [OrdersService, OrdersListService, OrderStockService, AuditService],
   // Export OrdersService so PaymentModule can inject it without circular deps
   exports:     [OrdersService],
 })

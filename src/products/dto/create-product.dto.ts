@@ -20,7 +20,7 @@ import {
 } from 'class-validator';
 // 1. Add "Transform" to your class-transformer imports
 import { Type, Transform } from 'class-transformer';
-import { parseIdList } from '@/utils/helpers/parseIdForBadges';
+import { parseIdList } from '../utils/parse-id-list.transform';
 
 export class CreateProductDto {
   @IsString()

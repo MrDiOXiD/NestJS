@@ -6,9 +6,9 @@ import { BadgeEntity } from './entities/badge.entity';
 import { ProductsService } from './services/products.service';
 import { BadgesService } from './services/badges.service';
 import { ProductsController } from './controller/products.controller';
+import { BadgesController } from './controller/badges.controller';
 import { CategoriesModule } from '../categories/categories.module';
 import { UsersModule } from '../users/users.module';
-import { BadgesController } from './controller/badges.controller';
 
 @Module({
   imports: [

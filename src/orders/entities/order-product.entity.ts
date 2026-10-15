@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { Column, Entity, ManyToOne, PrimaryGeneratedColumn } from "typeorm";
+import { Column, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from "typeorm";
 import { OrderEntity } from "./order.entity";
 import { ProductEntity } from "@/products/entities/product.entity";
 
@@ -9,6 +9,7 @@ export class OrderProductsEntity {
     id!: number;
     @Column()
     order_quantity!: number;
+    @Index("IDX_orders_product_orderId") // the order list joins lines by order
     @ManyToOne(() => OrderEntity, (order) => order.products)
     order!: OrderEntity;
     @ManyToOne(() => ProductEntity, (prod) => prod.id, { cascade: true })
