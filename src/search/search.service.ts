@@ -3,9 +3,9 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, SelectQueryBuilder } from 'typeorm';
 
 import { ProductEntity } from '@/products/entities/product.entity';
-import { BadgeEntity } from '@/badges/entities/badge.entity'; // <- adjust path if different
 import { SearchProductsDto, SearchSort, SuggestDto } from './dto/search-products.dto';
 import { buildTsQuery, escapeLike, normalizeText } from './utils/normalize';
+import { BadgeEntity } from '@/products/entities/badge.entity';
 
 type FacetSkip = 'brand' | 'category' | 'price';
 
