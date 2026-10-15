@@ -23,6 +23,7 @@ import { PaymentModule } from './payment/payment.module';
 import { WishlistModule } from './whishlist/whishlist.module';
 import { AddressesModule } from './addressess/addresses.module';
 import { DeliveryModule } from './delivery/delivery.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { DeliveryModule } from './delivery/delivery.module';
     WishlistModule,
     AddressesModule,
     DeliveryModule,
+    SearchModule,
   ],
 })
 export class AppModule implements NestModule, OnModuleInit {

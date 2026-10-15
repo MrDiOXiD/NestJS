@@ -1,9 +1,13 @@
 import { Module } from '@nestjs/common';
-import { SearchController } from './search.controller';
-import { SearchService } from './search.service';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
-// No forFeature() needed: the service uses the DataSource directly.
+import { ProductEntity } from '../products/entities/product.entity';
+import { BadgeEntity } from '../products/entities/badge.entity';
+import { SearchService } from './services/search.service';
+import { SearchController } from './controller/search.controller';
+
 @Module({
+  imports: [TypeOrmModule.forFeature([ProductEntity, BadgeEntity])],
   controllers: [SearchController],
   providers: [SearchService],
   exports: [SearchService],
