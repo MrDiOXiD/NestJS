@@ -67,6 +67,15 @@ export class OrdersController {
           orderProducts: [{ productId: 101, order_quantity: 2 }],
         },
       },
+      pickup: {
+        summary: 'Pickup (no address needed)',
+        value: {
+          deliveryMethodId: 1,
+          requestedDeliveryDate: '2026-10-20',
+          paymentMethod: 'cod',
+          orderProducts: [{ productId: 101, order_quantity: 1 }],
+        },
+      },
       newAddress: {
         summary: 'One-off address, cash on delivery',
         value: {
@@ -141,6 +150,10 @@ export class OrdersController {
     type: UpdateOrderStatus,
     examples: {
       ship: { summary: 'Mark as shipped (from processing)', value: { status: 'shipped' } },
+      shipWithTracking: {
+        summary: 'Mark as shipped with a carrier tracking code',
+        value: { status: 'shipped', trackingCode: '123456789012' },
+      },
       deliver: { summary: 'Mark as delivered (from shipped, deducts stock)', value: { status: 'delivered' } },
     },
   })

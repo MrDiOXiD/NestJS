@@ -26,6 +26,13 @@ export class OrderShippingDto {
   @ApiProperty({ example: 'Tehran' }) city!: string;
 }
 
+export class OrderDeliveryMethodDto {
+  @ApiProperty({ example: 3 }) id!: number;
+  @ApiProperty({ example: 'ارسال با تیپاکس', description: 'The carrier or pickup point chosen at checkout' }) label!: string;
+  @ApiProperty({ enum: ['courier', 'pickup'], example: 'courier', description: 'courier = we send it, pickup = customer collects' })
+  type!: string;
+}
+
 export class OrderLineProductDto {
   @ApiProperty({ example: 10 }) id!: number;
   @ApiProperty({ example: 'لامپ LED حبابی ۹ وات' }) title!: string;
@@ -55,9 +62,13 @@ export class OrderResponseDto {
   orderAt!: Date;
   @ApiProperty({ example: null, nullable: true, type: String, format: 'date-time' }) shippedAt!: Date | null;
   @ApiProperty({ example: null, nullable: true, type: String, format: 'date-time' }) deliveredAt!: Date | null;
+  @ApiProperty({ example: '123456789012', nullable: true, type: String, description: 'Carrier tracking code (e.g. Tipax), set when the order is shipped' })
+  trackingCode!: string | null;
   @ApiProperty({ enum: OrderStatus, example: OrderStatus.PROCESSING }) status!: string;
   @ApiProperty({ example: '110000.00', description: 'Grand total in Toman, delivery fee included' }) total_price!: string;
   @ApiProperty({ example: '65000' }) deliveryFee!: string;
+  @ApiProperty({ type: OrderDeliveryMethodDto, nullable: true, description: 'null on legacy orders without a delivery method' })
+  deliveryMethod!: OrderDeliveryMethodDto | null;
   @ApiProperty({ example: '2026-09-06T21:49:55.958Z', nullable: true, type: String, format: 'date-time' })
   paidAt!: Date | null;
   @ApiProperty({ example: '2026-09-15', description: 'YYYY-MM-DD' }) requestedDeliveryDate!: string;

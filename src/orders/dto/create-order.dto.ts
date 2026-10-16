@@ -6,13 +6,13 @@ import { CreateShippingDto } from './shipping.dto';
 import { OrderProductDto } from './order-product.dto';
 
 export class CreateOrderDto {
-  @ApiPropertyOptional({ description: 'One-off address, if not using a saved one', type: CreateShippingDto })
+  @ApiPropertyOptional({ description: 'One-off address, if not using a saved one. Required for courier delivery methods, ignored for pickup.', type: CreateShippingDto })
   @IsOptional()
   @ValidateNested()
   @Type(() => CreateShippingDto)
   shippingAddress!: CreateShippingDto;
 
-  @ApiPropertyOptional({ description: 'Use one of the user\'s saved addresses' })
+  @ApiPropertyOptional({ description: 'Use one of the user\'s saved addresses. Required (or shippingAddress) for courier delivery methods, ignored for pickup.' })
   @IsOptional()
   @IsInt()
   addressId?: number;

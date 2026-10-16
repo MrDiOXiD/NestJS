@@ -35,6 +35,10 @@ export class OrderEntity {
   @Column({ type: "timestamp", nullable: true })
   deliveredAt!: Date | null;
 
+  // Carrier tracking code (کد رهگیری), e.g. from Tipax. Set when the order is shipped.
+  @Column({ type: "varchar", length: 50, nullable: true })
+  trackingCode!: string | null;
+
   @Column({ type: "enum", enum: OrderStatus, default: OrderStatus.PROCESSING })
   status!: string;
 
@@ -46,7 +50,7 @@ export class OrderEntity {
 
   @OneToOne(() => ShippingEntity, (shipping) => shipping.order, { cascade: true })
   @JoinColumn()
-  shippingAddress!: ShippingEntity;
+  shippingAddress!: ShippingEntity | null; // null for pickup orders and legacy orders
 
   @Column({ type: "timestamp", nullable: true })
   paidAt?: Date;

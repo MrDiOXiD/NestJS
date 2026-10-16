@@ -10,9 +10,13 @@ export function toOrderResponse(order: OrderEntity): OrderResponseDto {
     orderAt: order.orderAt,
     shippedAt: order.shippedAt ?? null,
     deliveredAt: order.deliveredAt ?? null,
+    trackingCode: order.trackingCode ?? null,
     status: order.status,
     total_price: String(order.total_price),
     deliveryFee: String(order.deliveryFee),
+    deliveryMethod: order.deliveryMethod
+      ? { id: order.deliveryMethod.id, label: order.deliveryMethod.label, type: order.deliveryMethod.type }
+      : null,
     paidAt: order.paidAt ?? null,
     requestedDeliveryDate: order.requestedDeliveryDate,
     paymentMethod: order.paymentMethod,

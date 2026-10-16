@@ -65,11 +65,6 @@ export class OrdersService {
   async createOrder(createOrderDto: CreateOrderDto, user: UserEntity): Promise<CreateOrderResponseDto> {
     const totalOrderPrice = await this.calculateTotalPrice(createOrderDto.orderProducts);
 
-    // Resolves EITHER a saved addressId OR a one-off shippingAddress —
-    // matches what the checkout UI actually offers (pick a saved card,
-    // or type a new one).
-    const shippingEntity = await this.resolveShippingEntity(createOrderDto, user.id);
-
     const totalQuantity = createOrderDto.orderProducts.reduce(
       (sum, p) => sum + p.order_quantity,
       0,
@@ -82,6 +77,13 @@ export class OrdersService {
         createOrderDto.deliveryMethodId,
         totalQuantity,
       );
+
+    // A pickup is collected in person, so it needs no address (any address sent with it is ignored).
+    // A courier order resolves EITHER a saved addressId OR a one-off shippingAddress.
+    const shippingEntity =
+      deliveryMethod.type === "pickup"
+        ? null
+        : await this.resolveShippingEntity(createOrderDto, user.id);
 
     this.assertDeliveryDateInWindow(createOrderDto.requestedDeliveryDate);
 
@@ -105,7 +107,7 @@ export class OrdersService {
 
     try {
       await this.entityManager.transaction(async (transactionalEntityManager) => {
-        await transactionalEntityManager.save(ShippingEntity, shippingEntity);
+        if (shippingEntity) await transactionalEntityManager.save(ShippingEntity, shippingEntity);
         await transactionalEntityManager.save(OrderEntity, order);
       });
     } catch (error) {
@@ -161,6 +163,8 @@ export class OrdersService {
       .addSelect(["user.username", "user.email"])
       .leftJoin("order.updatedBy", "updatedBy")
       .addSelect(["updatedBy.id", "updatedBy.name", "updatedBy.username"])
+      .leftJoin("order.deliveryMethod", "deliveryMethod")
+      .addSelect(["deliveryMethod.id", "deliveryMethod.label", "deliveryMethod.type"])
       .leftJoinAndSelect("order.products", "products")
       .leftJoin("products.product", "product")
       .addSelect(["product.id", "product.title", "product.price"])
@@ -191,8 +195,11 @@ export class OrdersService {
   async updateOrderStatus(id: number, updateOrderDto: UpdateOrderStatus, user: UserEntity): Promise<OrderDetailResponseDto> {
     const action = ACTION_FOR_STATUS[updateOrderDto.status];
     if (!action) throw new BadRequestException("Status must be shipped or delivered.");
+    if (updateOrderDto.trackingCode && action !== OrderAction.SHIP) {
+      throw new BadRequestException("A tracking code can only be set when shipping the order.");
+    }
 
-    return this.transition(id, action, user);
+    return this.transition(id, action, user, updateOrderDto.trackingCode);
   }
 
   async cancelOrder(id: number, user: UserEntity): Promise<OrderDetailResponseDto> {
@@ -205,7 +212,12 @@ export class OrdersService {
    *  - the status check happens on the locked, current row (not on stale data read earlier)
    *  - status, timestamps and stock either all commit or all roll back
    */
-  private async transition(id: number, action: OrderAction, user: UserEntity): Promise<OrderDetailResponseDto> {
+  private async transition(
+    id: number,
+    action: OrderAction,
+    user: UserEntity,
+    trackingCode?: string,
+  ): Promise<OrderDetailResponseDto> {
     await this.entityManager.transaction(async (manager) => {
       const order = await manager.findOne(OrderEntity, { where: { id }, lock: { mode: "pessimistic_write" } });
       if (!order) throw new NotFoundException(`Order with ID ${id} not found.`);
@@ -218,7 +230,10 @@ export class OrdersService {
       const now = new Date();
       order.status = ORDER_TRANSITIONS[action].to;
       order.updatedBy = user;
-      if (action === OrderAction.SHIP) order.shippedAt = now;
+      if (action === OrderAction.SHIP) {
+        order.shippedAt = now;
+        order.trackingCode = trackingCode?.trim() || null;
+      }
       if (action === OrderAction.DELIVER) {
         order.deliveredAt = now; // orderAt is no longer overwritten: it stays the real order date
         await this.orderStockService.deductForDelivery(manager, order.id);
@@ -305,6 +320,7 @@ export class OrdersService {
       paymentMethod: order.paymentMethod,
       paidAt: order.paidAt ?? null,
       orderAt: order.orderAt,
+      trackingCode: order.trackingCode ?? null,
       products: order.products.map((p) => ({
         title: p.product.title,
         quantity: p.order_quantity,
