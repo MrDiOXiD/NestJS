@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   UseGuards,
   Put,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,10 +17,15 @@ import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiParam,
+  ApiBody,
   ApiExtraModels,
 } from '@nestjs/swagger';
 
 import { OrdersService } from '../services/orders.service';
+import { OrdersListService } from '../services/orders-list.service';
+import { FindOrdersQueryDto } from '../dto/find-orders-query.dto';
+import { PaginatedOrdersResponseDto } from '../dto/paginated-orders-response.dto';
+import { CreateOrderResponseDto, OrderDetailResponseDto } from '../dto/order-response.dto';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderStatus } from '../dto/update-order-status.dto';
 import { CreateShippingDto } from '../dto/shipping.dto';
@@ -36,7 +42,10 @@ import { OrderSummaryResponseDto } from '../dto/order-summary-response.dto';
 @ApiExtraModels(CreateShippingDto, OrderProductDto)
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly ordersListService: OrdersListService,
+  ) {}
 
   @Post()
   @UseGuards(AuthenticationGuard)
@@ -45,7 +54,47 @@ export class OrdersController {
     description:
       'Creates an order for the current user, including a shipping address and the list of ordered products.',
   })
-  @ApiCreatedResponse({ description: 'The order has been successfully created.' })
+  @ApiBody({
+    type: CreateOrderDto,
+    examples: {
+      savedAddress: {
+        summary: 'Saved address, pay online',
+        value: {
+          addressId: 4,
+          deliveryMethodId: 3,
+          requestedDeliveryDate: '2026-10-20',
+          paymentMethod: 'online',
+          orderProducts: [{ productId: 101, order_quantity: 2 }],
+        },
+      },
+      pickup: {
+        summary: 'Pickup (no address needed)',
+        value: {
+          deliveryMethodId: 1,
+          requestedDeliveryDate: '2026-10-20',
+          paymentMethod: 'cod',
+          orderProducts: [{ productId: 101, order_quantity: 1 }],
+        },
+      },
+      newAddress: {
+        summary: 'One-off address, cash on delivery',
+        value: {
+          shippingAddress: {
+            phone: '+989131234567',
+            name: 'Hesam Mohammadi',
+            postalCode: '1967834511',
+            address: 'Vali Asr St, No. 24, Unit 3',
+            city: 'Tehran',
+          },
+          deliveryMethodId: 3,
+          requestedDeliveryDate: '2026-10-20',
+          paymentMethod: 'cod',
+          orderProducts: [{ productId: 101, order_quantity: 1 }],
+        },
+      },
+    },
+  })
+  @ApiCreatedResponse({ type: CreateOrderResponseDto, description: 'The order has been successfully created.' })
   @ApiResponse({ status: 400, description: 'Bad Request. Invalid input data.' })
   @ApiResponse({ status: 401, description: 'Unauthorized. Token missing or invalid.' })
   async create(
@@ -58,14 +107,17 @@ export class OrdersController {
   @Get()
   @UseGuards(AuthenticationGuard, AuthorizedGuard([Roles.ADMIN]))
   @ApiOperation({
-    summary: 'Retrieve all orders',
-    description: 'Returns every order in the system. Requires the ADMIN role.',
+    summary: 'List orders (paginated)',
+    description:
+      'Paginated, filterable, sortable list of orders. Requires the ADMIN role. ' +
+      '`meta.statusCounts` ignores the status filter so status chips stay accurate while searching.',
   })
-  @ApiOkResponse({ description: 'Successfully retrieved list of orders.' })
+  @ApiOkResponse({ type: PaginatedOrdersResponseDto, description: 'Successfully retrieved a page of orders.' })
+  @ApiResponse({ status: 400, description: 'Bad Request. Invalid query parameter (e.g. limit > 100, unknown status).' })
   @ApiResponse({ status: 401, description: 'Unauthorized. Token missing or invalid.' })
   @ApiResponse({ status: 403, description: 'Forbidden. User does not have ADMIN privileges.' })
-  async findAllOrders() {
-    return await this.ordersService.findAll();
+  async findAllOrders(@Query() query: FindOrdersQueryDto): Promise<PaginatedOrdersResponseDto> {
+    return await this.ordersListService.list(query);
   }
 
   @Get(':id')
@@ -75,26 +127,46 @@ export class OrdersController {
     description: 'Returns full order details for a single order. Requires the ADMIN role.',
   })
   @ApiParam({ name: 'id', type: 'integer', description: 'The unique identifier of the order', example: 1 })
-  @ApiOkResponse({ description: 'Successfully retrieved the order.' })
+  @ApiOkResponse({
+    type: OrderDetailResponseDto,
+    description: 'Successfully retrieved the order. `allowedActions` lists what can still be done to it.',
+  })
   @ApiResponse({ status: 401, description: 'Unauthorized. Token missing or invalid.' })
   @ApiResponse({ status: 403, description: 'Forbidden. User does not have ADMIN privileges.' })
   @ApiResponse({ status: 404, description: 'Not Found. Order with the specified ID does not exist.' })
   findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.ordersService.findOne(id);
+    return this.ordersService.getOrderDetail(id);
   }
 
   @Put(':id')
   @UseGuards(AuthenticationGuard, AuthorizedGuard([Roles.ADMIN]))
   @ApiOperation({
     summary: 'Update an order status',
-    description: 'Transitions an order to SHIPPED or DELIVERED. Requires the ADMIN role.',
+    description:
+      'Moves an order forward: SHIPPED (only from processing) or DELIVERED (only from shipped, deducts stock). Requires the ADMIN role.',
   })
   @ApiParam({ name: 'id', type: 'integer', description: 'The unique identifier of the order to update', example: 1 })
-  @ApiOkResponse({ description: 'Successfully updated the order status.' })
+  @ApiBody({
+    type: UpdateOrderStatus,
+    examples: {
+      ship: { summary: 'Mark as shipped (from processing)', value: { status: 'shipped' } },
+      shipWithTracking: {
+        summary: 'Mark as shipped with a carrier tracking code',
+        value: { status: 'shipped', trackingCode: '123456789012' },
+      },
+      deliver: { summary: 'Mark as delivered (from shipped, deducts stock)', value: { status: 'delivered' } },
+    },
+  })
+  @ApiOkResponse({ type: OrderDetailResponseDto, description: 'Successfully updated the order status.' })
   @ApiResponse({ status: 400, description: 'Bad Request. Invalid payload.' })
   @ApiResponse({ status: 401, description: 'Unauthorized. Token missing or invalid.' })
   @ApiResponse({ status: 403, description: 'Forbidden. User does not have ADMIN privileges.' })
   @ApiResponse({ status: 404, description: 'Not Found. Order does not exist.' })
+  @ApiResponse({
+    status: 409,
+    description: 'Conflict. The order status does not allow this transition, or stock is insufficient.',
+    example: { statusCode: 409, message: 'Cannot deliver an order that is processing. Allowed actions: ship, cancel.', error: 'Conflict' },
+  })
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateOrderDto: UpdateOrderStatus,
@@ -107,13 +179,19 @@ export class OrdersController {
   @UseGuards(AuthenticationGuard, AuthorizedGuard([Roles.ADMIN]))
   @ApiOperation({
     summary: 'Cancel an order',
-    description: 'Cancels an existing order. Requires the ADMIN role.',
+    description:
+      'Cancels an order. Only processing orders can be cancelled (nothing has shipped or been deducted from stock yet). Cancelling an already cancelled order is a no-op. Requires the ADMIN role.',
   })
   @ApiParam({ name: 'id', type: 'integer', description: 'The unique identifier of the order to cancel', example: 1 })
-  @ApiOkResponse({ description: 'Successfully cancelled the order.' })
+  @ApiOkResponse({ type: OrderDetailResponseDto, description: 'Successfully cancelled the order.' })
   @ApiResponse({ status: 401, description: 'Unauthorized. Token missing or invalid.' })
   @ApiResponse({ status: 403, description: 'Forbidden. User does not have ADMIN privileges.' })
   @ApiResponse({ status: 404, description: 'Not Found. Order does not exist.' })
+  @ApiResponse({
+    status: 409,
+    description: 'Conflict. Shipped or delivered orders cannot be cancelled.',
+    example: { statusCode: 409, message: 'Cannot cancel an order that is shipped. Allowed actions: deliver.', error: 'Conflict' },
+  })
   async cancel(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: UserEntity,

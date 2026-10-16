@@ -3,11 +3,13 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
   Query,
   ParseIntPipe,
+  ParseEnumPipe,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -27,8 +29,22 @@ import { CurrentUser } from "../../utils/decorators/currentUser.decorator";
 import { Roles } from "../../utils/common/Roles.enum";
 import { multerConfig } from "../../utils/middleware/multer";
 import { UpdateProductDto } from "../dto/update-product.dto";
+import { SetFeaturedDto } from "../dto/set-featured.dto";
+import { ProductSort } from "../enums/product-sort.enum";
+import { SetProductBadgesDto } from "../dto/set-product-badges.dto";
 import { UserEntity } from "@/users/entities/user.entity";
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBadRequestResponse,
+  ApiNotFoundResponse,
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from "@nestjs/swagger";
 @ApiTags("products")
 @ApiBearerAuth()
 @Controller("products")
@@ -54,6 +70,7 @@ export class ProductsController {
         discountStartDate: { type: "string", format: "date-time" },
         discountEndDate: { type: "string", format: "date-time" },
         isActive: { type: "boolean", default: true },
+        isFeatured: { type: "boolean", default: false, description: "Show under sort=featured" },
 
         // 🌟 NEW: Brand
         brand: {
@@ -62,11 +79,11 @@ export class ProductsController {
           description: "The manufacturer or brand of the product",
         },
 
-        // 🌟 NEW: Badge
-        badge: {
+        // 🌟 Badges (multiple, e.g. new + hot at once)
+        badges: {
           type: "string",
-          example: "new",
-          description: "Highlight badge (e.g., new, sale, hot)",
+          example: "[1,3]",
+          description: "Badge ids from GET /badges, as \"[1,3]\" or \"1,3\". Max 10, active badges only.",
         },
 
         // 🌟 NEW: Dynamic Attributes (JSON String)
@@ -129,20 +146,62 @@ export class ProductsController {
 
   @Get()
   @CacheTTL(86400000)
+  @ApiOperation({ summary: "List products", description: "Paginated product listing, sortable by newest or featured." })
+  @ApiQuery({ name: "page", type: Number, required: false, example: 1, description: "1-indexed page number" })
+  @ApiQuery({ name: "limit", type: Number, required: false, example: 10, description: "Items per page" })
+  @ApiQuery({
+    name: "sort",
+    enum: ProductSort,
+    required: false,
+    example: ProductSort.NEWEST,
+    description: "'newest' orders by createdAt DESC. 'featured' orders by isFeatured DESC, createdAt DESC.",
+  })
+  @ApiOkResponse({ description: "Paginated list of products", type: [ProductEntity] })
   async findAll(
     @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query("limit", new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query("sort", new DefaultValuePipe(ProductSort.NEWEST), new ParseEnumPipe(ProductSort))
+    sort: ProductSort,
   ): Promise<ProductEntity[]> {
-    return this.productsService.findAll(page, limit);
+    return this.productsService.findAll(page, limit, sort);
   }
 
   @Get(":id")
+  @ApiOperation({ summary: "Get a single product by id" })
+  @ApiParam({ name: "id", type: Number, example: 1 })
+  @ApiOkResponse({ type: ProductEntity })
   async findOne(@Param("id", ParseIntPipe) id: number): Promise<ProductEntity> {
     return this.productsService.findOne(id);
   }
 
   @UseGuards(AuthenticationGuard, AuthorizedGuard([Roles.ADMIN]))
   @Put(":id")
+  @ApiOperation({
+    summary: "Update a product",
+    description: "JSON body, every field optional. Send null for brand / discountStartDate / discountEndDate to clear them. Images are not editable here.",
+  })
+  @ApiParam({ name: "id", type: Number, example: 1 })
+  @ApiBody({
+    type: UpdateProductDto,
+    examples: {
+      basics: { summary: "Edit basics", value: { title: "لامپ LED حبابی ۱۲ وات", price: 49000, stock: 80 } },
+      discount: {
+        summary: "Set a discount window",
+        value: { discount: 15, discountStartDate: "2026-10-15T00:00:00.000Z", discountEndDate: "2026-10-30T23:59:59.000Z" },
+      },
+      clearDiscount: {
+        summary: "Clear the discount",
+        value: { discount: 0, discountStartDate: null, discountEndDate: null },
+      },
+      brandAndBadges: {
+        summary: "Brand, badges and attributes",
+        value: { brand: "پارس شهاب", badges: [1, 3], attributes: { color: "white", power: "12W" } },
+      },
+    },
+  })
+  @ApiOkResponse({ type: ProductEntity })
+  @ApiBadRequestResponse({ description: "Validation failed or unknown/inactive badge id" })
+  @ApiNotFoundResponse({ description: "Product or category not found" })
   async update(
     @Param("id", ParseIntPipe) id: number,
     @Body() updateProductDto: UpdateProductDto,
@@ -151,7 +210,49 @@ export class ProductsController {
   }
 
   @UseGuards(AuthenticationGuard, AuthorizedGuard([Roles.ADMIN]))
+  @Patch(":id/featured")
+  @ApiOperation({ summary: "Set or unset a product's featured flag" })
+  @ApiParam({ name: "id", type: Number, example: 1 })
+  @ApiBody({ type: SetFeaturedDto, examples: { on: { value: { isFeatured: true } } } })
+  @ApiOkResponse({ type: ProductEntity })
+  async setFeatured(
+    @Param("id", ParseIntPipe) id: number,
+    @Body() dto: SetFeaturedDto,
+  ): Promise<ProductEntity> {
+    return this.productsService.setFeatured(id, dto.isFeatured);
+  }
+
+  @UseGuards(AuthenticationGuard, AuthorizedGuard([Roles.ADMIN]))
+  @Put(":id/badges")
+  @ApiOperation({
+    summary: "Replace a product's badges",
+    description: "Overwrites the full badge list. Send an empty array to remove all badges.",
+  })
+  @ApiParam({ name: "id", type: Number, example: 1 })
+  @ApiBody({
+    type: SetProductBadgesDto,
+    examples: {
+      multiple: { summary: "Three badges", value: { badgeIds: [1, 2, 3] } },
+      clear: { summary: "Remove all badges", value: { badgeIds: [] } },
+    },
+  })
+  @ApiOkResponse({ type: ProductEntity })
+  @ApiBadRequestResponse({
+    description: "Unknown/inactive badge id, duplicates, or invalid payload",
+    example: { statusCode: 400, message: "Unknown or inactive badge id(s): 99", error: "Bad Request" },
+  })
+  @ApiNotFoundResponse({ description: "Product not found" })
+  async setBadges(
+    @Param("id", ParseIntPipe) id: number,
+    @Body() dto: SetProductBadgesDto,
+  ): Promise<ProductEntity> {
+    return this.productsService.setBadges(id, dto.badgeIds);
+  }
+
+  @UseGuards(AuthenticationGuard, AuthorizedGuard([Roles.ADMIN]))
   @Delete(":id")
+  @ApiOperation({ summary: "Delete a product" })
+  @ApiParam({ name: "id", type: Number, example: 1 })
   async remove(@Param("id", ParseIntPipe) id: number): Promise<{ message: string }> {
     return this.productsService.delete(id);
   }

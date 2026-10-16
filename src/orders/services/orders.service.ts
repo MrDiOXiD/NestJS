@@ -18,6 +18,16 @@ import { UpdateOrderStatus } from "../dto/update-order-status.dto";
 import { UserEntity } from "@/users/entities/user.entity";
 import { AuditService } from "../../audit/audit.services";
 import { OrderStatus } from "../../utils/common/order.enum";
+import { OrderStockService } from "./order-stock.service";
+import { toOrderResponse } from "../mappers/order.mapper";
+import { CreateOrderResponseDto, OrderDetailResponseDto } from "../dto/order-response.dto";
+import {
+  ACTION_FOR_STATUS,
+  ORDER_TRANSITIONS,
+  OrderAction,
+  assertCanTransition,
+  getAllowedActions,
+} from "../domain/order-status.rules";
 import { normalizeError } from "../../utils/errors/normalize-error.util";
 import { CreateShippingDto } from "../dto/shipping.dto";
 import { ProductEntity } from "@/products/entities/product.entity";
@@ -49,15 +59,11 @@ export class OrdersService {
     @InjectRepository(UserAddressEntity)
     private readonly addressRepository: Repository<UserAddressEntity>,
     private readonly deliveryMethodsService: DeliveryMethodsService,
+    private readonly orderStockService: OrderStockService,
   ) {}
 
-  async createOrder(createOrderDto: CreateOrderDto, user: UserEntity) {
+  async createOrder(createOrderDto: CreateOrderDto, user: UserEntity): Promise<CreateOrderResponseDto> {
     const totalOrderPrice = await this.calculateTotalPrice(createOrderDto.orderProducts);
-
-    // Resolves EITHER a saved addressId OR a one-off shippingAddress —
-    // matches what the checkout UI actually offers (pick a saved card,
-    // or type a new one).
-    const shippingEntity = await this.resolveShippingEntity(createOrderDto, user.id);
 
     const totalQuantity = createOrderDto.orderProducts.reduce(
       (sum, p) => sum + p.order_quantity,
@@ -71,6 +77,13 @@ export class OrdersService {
         createOrderDto.deliveryMethodId,
         totalQuantity,
       );
+
+    // A pickup is collected in person, so it needs no address (any address sent with it is ignored).
+    // A courier order resolves EITHER a saved addressId OR a one-off shippingAddress.
+    const shippingEntity =
+      deliveryMethod.type === "pickup"
+        ? null
+        : await this.resolveShippingEntity(createOrderDto, user.id);
 
     this.assertDeliveryDateInWindow(createOrderDto.requestedDeliveryDate);
 
@@ -94,7 +107,7 @@ export class OrdersService {
 
     try {
       await this.entityManager.transaction(async (transactionalEntityManager) => {
-        await transactionalEntityManager.save(ShippingEntity, shippingEntity);
+        if (shippingEntity) await transactionalEntityManager.save(ShippingEntity, shippingEntity);
         await transactionalEntityManager.save(OrderEntity, order);
       });
     } catch (error) {
@@ -104,9 +117,9 @@ export class OrdersService {
     }
 
     this.auditService.logOrderPlacement(user.id, order.id);
-    const savedOrder = await this.findOne(order.id);
+    const savedOrder = await this.findOneOrFail(order.id);
     return {
-      order: savedOrder,
+      order: toOrderResponse(savedOrder),
       totalPrice: totalOrderPrice,
       deliveryFee,
       grandTotal: totalOrderPrice + deliveryFee,
@@ -148,6 +161,10 @@ export class OrdersService {
       .leftJoinAndSelect("order.shippingAddress", "shippingAddress")
       .leftJoinAndSelect("order.user", "user")
       .addSelect(["user.username", "user.email"])
+      .leftJoin("order.updatedBy", "updatedBy")
+      .addSelect(["updatedBy.id", "updatedBy.name", "updatedBy.username"])
+      .leftJoin("order.deliveryMethod", "deliveryMethod")
+      .addSelect(["deliveryMethod.id", "deliveryMethod.label", "deliveryMethod.type"])
       .leftJoinAndSelect("order.products", "products")
       .leftJoin("products.product", "product")
       .addSelect(["product.id", "product.title", "product.price"])
@@ -169,58 +186,63 @@ export class OrdersService {
     return order;
   }
 
-  async updateOrderStatus(id: number, updateOrderDto: UpdateOrderStatus, user: UserEntity) {
+  /** Order + the actions still possible on it (drives the admin buttons, so rules live in one place). */
+  async getOrderDetail(id: number): Promise<OrderDetailResponseDto> {
     const order = await this.findOneOrFail(id);
-
-    this.validateOrderStatusUpdate(order, updateOrderDto);
-
-    order.status = updateOrderDto.status;
-    order.updatedBy = user;
-
-    if (updateOrderDto.status === OrderStatus.SHIPPED) {
-      order.shippedAt = new Date();
-    }
-
-    if (updateOrderDto.status === OrderStatus.DELIVERED) {
-      order.orderAt = new Date();
-      await this.updateProductStock(order, OrderStatus.DELIVERED);
-    }
-
-    await this.orderRepository.save(order);
-    return order;
+    return { ...toOrderResponse(order), allowedActions: getAllowedActions(order.status) };
   }
 
-  async cancelOrder(id: number, user: UserEntity) {
-    const order = await this.findOneOrFail(id);
-
-    if (order.status === OrderStatus.CANCELLED) {
-      return order;
+  async updateOrderStatus(id: number, updateOrderDto: UpdateOrderStatus, user: UserEntity): Promise<OrderDetailResponseDto> {
+    const action = ACTION_FOR_STATUS[updateOrderDto.status];
+    if (!action) throw new BadRequestException("Status must be shipped or delivered.");
+    if (updateOrderDto.trackingCode && action !== OrderAction.SHIP) {
+      throw new BadRequestException("A tracking code can only be set when shipping the order.");
     }
 
-    // Fixed: a delivered order was previously cancellable too (only
-    // CANCELLED was excluded). Once stock has been released back for a
-    // delivered order, cancelling it afterwards would double-adjust
-    // stock in updateProductStock below.
-    if (order.status === OrderStatus.DELIVERED) {
-      throw new BadRequestException("A delivered order cannot be cancelled.");
-    }
-
-    order.updatedBy = user;
-    order.status = OrderStatus.CANCELLED;
-    await this.orderRepository.save(order);
-    await this.updateProductStock(order, OrderStatus.CANCELLED);
-
-    return order;
+    return this.transition(id, action, user, updateOrderDto.trackingCode);
   }
 
-  private async updateProductStock(order: OrderEntity, status: OrderStatus) {
-    for (const orderProduct of order.products) {
-      await this.productServices.updateStock(
-        orderProduct.product.id,
-        orderProduct.order_quantity,
-        status,
-      );
-    }
+  async cancelOrder(id: number, user: UserEntity): Promise<OrderDetailResponseDto> {
+    return this.transition(id, OrderAction.CANCEL, user);
+  }
+
+  /**
+   * Applies one lifecycle action atomically:
+   *  - the order row is locked, so two admins clicking at once are serialised and the second gets a 409
+   *  - the status check happens on the locked, current row (not on stale data read earlier)
+   *  - status, timestamps and stock either all commit or all roll back
+   */
+  private async transition(
+    id: number,
+    action: OrderAction,
+    user: UserEntity,
+    trackingCode?: string,
+  ): Promise<OrderDetailResponseDto> {
+    await this.entityManager.transaction(async (manager) => {
+      const order = await manager.findOne(OrderEntity, { where: { id }, lock: { mode: "pessimistic_write" } });
+      if (!order) throw new NotFoundException(`Order with ID ${id} not found.`);
+
+      // Cancelling twice is harmless: keep the call idempotent instead of failing a retry
+      if (action === OrderAction.CANCEL && order.status === OrderStatus.CANCELLED) return;
+
+      assertCanTransition(order.status, action);
+
+      const now = new Date();
+      order.status = ORDER_TRANSITIONS[action].to;
+      order.updatedBy = user;
+      if (action === OrderAction.SHIP) {
+        order.shippedAt = now;
+        order.trackingCode = trackingCode?.trim() || null;
+      }
+      if (action === OrderAction.DELIVER) {
+        order.deliveredAt = now; // orderAt is no longer overwritten: it stays the real order date
+        await this.orderStockService.deductForDelivery(manager, order.id);
+      }
+
+      await manager.save(OrderEntity, order);
+    });
+
+    return this.getOrderDetail(id);
   }
 
   private async calculateTotalPrice(orderProducts: OrderProductDto[]): Promise<number> {
@@ -236,25 +258,6 @@ export class OrdersService {
     }
 
     return total;
-  }
-
-  private validateOrderStatusUpdate(order: OrderEntity, updateOrderDto: UpdateOrderStatus) {
-    if (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.CANCELLED) {
-      throw new BadRequestException(`Order is already ${order.status}.`);
-    }
-
-    // Fixed: the previous version only blocked an invalid jump straight
-    // to DELIVERED when the current status was PROCESSING — an order
-    // still in PENDING could be marked DELIVERED directly, skipping
-    // SHIPPED entirely. This now enforces the same rule for every
-    // status that isn't already SHIPPED.
-    if (updateOrderDto.status === OrderStatus.DELIVERED && order.status !== OrderStatus.SHIPPED) {
-      throw new BadRequestException("Order must be marked as Shipped before it can be Delivered.");
-    }
-
-    if (updateOrderDto.status === OrderStatus.SHIPPED && order.status === OrderStatus.SHIPPED) {
-      throw new BadRequestException("Order has already been shipped.");
-    }
   }
 
   private async createShippingEntity(shippingAddress: CreateShippingDto): Promise<ShippingEntity> {
@@ -317,6 +320,7 @@ export class OrdersService {
       paymentMethod: order.paymentMethod,
       paidAt: order.paidAt ?? null,
       orderAt: order.orderAt,
+      trackingCode: order.trackingCode ?? null,
       products: order.products.map((p) => ({
         title: p.product.title,
         quantity: p.order_quantity,

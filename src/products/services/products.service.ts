@@ -6,11 +6,13 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { FindOptionsOrder, Repository } from "typeorm";
 import * as cloudinary from "cloudinary";
 
 import { ProductEntity } from "../entities/product.entity";
 import { CreateProductDto } from "../dto/create-product.dto";
+import { ProductSort } from "../enums/product-sort.enum";
+import { BadgesService } from "./badges.service";
 
 import { CategoriesEntity } from "../../categories/entities/category.entity";
 import { CategoriesService } from "../../categories/services/categories.service";
@@ -21,6 +23,19 @@ import { UserEntity } from "@/users/entities/user.entity";
 import { PutObjectCommand, DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { extname } from "path";
 
+/** Columns that map 1:1 from UpdateProductDto. null is allowed for brand to clear it. */
+const UPDATABLE_FIELDS = [
+  "title",
+  "description",
+  "price",
+  "stock",
+  "discount",
+  "isActive",
+  "isFeatured",
+  "brand",
+  "attributes",
+] as const satisfies readonly (keyof UpdateProductDto)[];
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -29,6 +44,7 @@ export class ProductsService {
     @InjectRepository(ProductEntity)
     private readonly productRepository: Repository<ProductEntity>,
     private readonly categoriesService: CategoriesService,
+    private readonly badgesService: BadgesService,
   ) {
     //-------arvan(cloudinary)---------------------------------------------------
     // This makes sure NestJS doesn't try to inject it as a provider!
@@ -52,6 +68,8 @@ export class ProductsService {
     currentUser: UserEntity,
   ): Promise<ProductEntity> {
     try {
+      // Validate before any S3 upload so a bad badge id never leaves orphaned files.
+      await this.badgesService.assertAllActive(dto.badges ?? []);
       const category = await this.categoriesService.findCategoryById(+dto.categoryId);
       const { secure_url, public_id } = await this.uploadProductImage(productImage);
       let galleryUploads: { secure_url: string; public_id: string; }[] = [];
@@ -74,8 +92,9 @@ export class ProductsService {
         discountStartDate: dto.discountStartDate || null,
         discountEndDate: dto.discountEndDate || null,
         isActive: dto.isActive !== undefined ? dto.isActive : true,
+        isFeatured: dto.isFeatured ?? false,
         brand: dto.brand,
-        badge: dto.badge,
+        badges: dto.badges ?? null,
         attributes: dto.attributes,
       });
 
@@ -105,9 +124,22 @@ export class ProductsService {
     return product;
   }
 
-  async findAll(page = 1, limit = 10): Promise<ProductEntity[]> {
+  async findAll(
+    page = 1,
+    limit = 10,
+    sort: ProductSort = ProductSort.NEWEST,
+  ): Promise<ProductEntity[]> {
     const skip = (page - 1) * limit;
-    return this.productRepository.find({ skip, take: limit });
+
+    // createdAt tiebreaker on 'featured' keeps pagination stable across pages
+    // when multiple rows share isFeatured=true (ORDER BY on a low-cardinality
+    // boolean alone is not deterministic for OFFSET pagination).
+    const order: FindOptionsOrder<ProductEntity> =
+      sort === ProductSort.FEATURED
+        ? { isFeatured: "DESC", createdAt: "DESC" }
+        : { createdAt: "DESC" };
+
+    return this.productRepository.find({ skip, take: limit, order });
   }
 
   async findByCategoryId(categoryId: number): Promise<ProductEntity[]> {
@@ -119,12 +151,15 @@ export class ProductsService {
   async update(id: number, dto: UpdateProductDto): Promise<ProductEntity> {
     const product = await this.findOne(id);
 
-    // ── Scalar fields: use actual ProductEntity property names ──
-    // ERROR WAS HERE: 'name' does not exist — the field is 'title'
-    if (dto.title !== undefined) product.title = dto.title;
-    if (dto.price !== undefined) product.price = dto.price;
-    if (dto.stock !== undefined) product.stock = dto.stock;
-    if (dto.description !== undefined) product.description = dto.description;
+    // ── Scalar fields: explicit whitelist, so a stray key can never overwrite id/userId/etc. ──
+    for (const field of UPDATABLE_FIELDS) {
+      const value = dto[field];
+      if (value !== undefined) Object.assign(product, { [field]: value });
+    }
+
+    // Discount dates can be cleared with null (@IsOptional lets null through validation)
+    if (dto.discountStartDate !== undefined) product.discountStartDate = dto.discountStartDate ?? null;
+    if (dto.discountEndDate !== undefined) product.discountEndDate = dto.discountEndDate ?? null;
 
     // ── Category: delegate to categoriesService — no categoryRepository needed ──
     // ERROR WAS HERE: this.categoryRepository does not exist on ProductsService
@@ -134,6 +169,24 @@ export class ProductsService {
       product.categoryId = category.id;
     }
 
+    if (dto.badges !== undefined) {
+      await this.badgesService.assertAllActive(dto.badges);
+      product.badges = dto.badges;
+    }
+
+    return this.productRepository.save(product);
+  }
+
+  async setBadges(id: number, badgeIds: number[]): Promise<ProductEntity> {
+    const product = await this.findOne(id);
+    await this.badgesService.assertAllActive(badgeIds);
+    product.badges = badgeIds;
+    return this.productRepository.save(product);
+  }
+
+  async setFeatured(id: number, isFeatured: boolean): Promise<ProductEntity> {
+    const product = await this.findOne(id);
+    product.isFeatured = isFeatured;
     return this.productRepository.save(product);
   }
 

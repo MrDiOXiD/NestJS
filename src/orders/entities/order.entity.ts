@@ -7,6 +7,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   OneToMany,
@@ -17,6 +18,9 @@ import { ShippingEntity } from "./shipping.entity";
 import { OrderProductsEntity } from "./order-product.entity";
 import { OrderStatus } from "../../utils/common/order.enum";
 
+// Serve the admin list: filter by status + newest first, and the unfiltered newest-first default.
+@Index("IDX_order_status_orderAt", ["status", "orderAt"])
+@Index("IDX_order_orderAt", ["orderAt"])
 @Entity({ name: "order" })
 export class OrderEntity {
   @PrimaryGeneratedColumn()
@@ -27,6 +31,13 @@ export class OrderEntity {
 
   @Column({ type: "timestamp", nullable: true })
   shippedAt!: Date | null;
+
+  @Column({ type: "timestamp", nullable: true })
+  deliveredAt!: Date | null;
+
+  // Carrier tracking code (کد رهگیری), e.g. from Tipax. Set when the order is shipped.
+  @Column({ type: "varchar", length: 50, nullable: true })
+  trackingCode!: string | null;
 
   @Column({ type: "enum", enum: OrderStatus, default: OrderStatus.PROCESSING })
   status!: string;
@@ -39,7 +50,7 @@ export class OrderEntity {
 
   @OneToOne(() => ShippingEntity, (shipping) => shipping.order, { cascade: true })
   @JoinColumn()
-  shippingAddress!: ShippingEntity;
+  shippingAddress!: ShippingEntity | null; // null for pickup orders and legacy orders
 
   @Column({ type: "timestamp", nullable: true })
   paidAt?: Date;
@@ -47,6 +58,7 @@ export class OrderEntity {
   @OneToMany(() => OrderProductsEntity, (ord) => ord.order, { cascade: true })
   products!: OrderProductsEntity[];
 
+  @Index("IDX_order_userId") // FK: Postgres does not index it automatically
   @ManyToOne(() => UserEntity, (user) => user.orders)
   user!: UserEntity;
 

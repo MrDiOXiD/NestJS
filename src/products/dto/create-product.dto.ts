@@ -1,6 +1,9 @@
 // src/products/dto/create-product.dto.ts
 
 import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
   IsBoolean,
   IsDate,
   IsInt,
@@ -17,6 +20,7 @@ import {
 } from 'class-validator';
 // 1. Add "Transform" to your class-transformer imports
 import { Type, Transform } from 'class-transformer';
+import { parseIdList } from '../utils/parse-id-list.transform';
 
 export class CreateProductDto {
   @IsString()
@@ -76,17 +80,31 @@ export class CreateProductDto {
   @IsBoolean()
   isActive?: boolean;
 
+  // Admin-controlled — surfaces the product under sort=featured
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === 1 || value === '1') return true;
+    if (value === 'false' || value === 0 || value === '0') return false;
+    return value;
+  })
+  @IsBoolean()
+  isFeatured?: boolean;
+
   @IsOptional()
   @IsString()
   @IsOptional()
   @MaxLength(100)
   brand?: string;
 
+  // 🌟 Badge IDs (e.g. [1,3]) — multipart sends strings, parseIdList normalises them.
   @IsOptional()
-  @IsString()
-  @IsOptional()
-  @MaxLength(50)
-  badge?: string;
+  @Transform(parseIdList)
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @IsPositive({ each: true })
+  badges?: number[];
 
   // 🌟 The parsing magic for multipart/form-data
   @IsOptional()
